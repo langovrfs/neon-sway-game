@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Sway: High Score Edition</title>
+    <style>
+        body { margin: 0; background: #050505; color: white; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
+        canvas { display: block; cursor: none; }
+        #ui-layer { position: absolute; top: 20px; left: 20px; pointer-events: none; }
+        .stat { font-size: 20px; margin-bottom: 5px; text-shadow: 0 0 10px rgba(0,255,204,0.5); }
+        #msg { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            text-align: center; display: none; background: rgba(0,0,0,0.85); 
+            padding: 40px; border-radius: 20px; border: 2px solid #00ffcc;
+        }
+        #new-record { color: #ff00ff; font-weight: bold; display: none; margin-bottom: 10px; animation: blink 0.5s infinite; }
+        button { 
+            background: #00ffcc; border: none; padding: 12px 30px; font-size: 18px; 
+            cursor: pointer; border-radius: 50px; font-weight: bold; transition: 0.3s;
+        }
+        button:hover { background: #fff; transform: scale(1.1); }
+        @keyframes blink { 50% { opacity: 0; } }
+    </style>
+</head>
+<body>
+    <div id="ui-layer">
+        <div class="stat">Score: <span id="score">0</span></div>
+        <div class="stat">Best: <span id="best">0</span></div>
+    </div>
+
+    <div id="msg">
+        <div id="new-record">🔥 NEW HIGH SCORE! 🔥</div>
+        <h1 style="margin-top:0">GAME OVER</h1>
+        <p id="final"></p>
+        <button onclick="reset()">TRY AGAIN</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const bestEl = document.getElementById('best');
+        const msgEl = document.getElementById('msg');
+        const finalEl = document.getElementById('final');
+        const recordEl = document.getElementById('new-record');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let score = 0;
+        let highScore = localStorage.getItem('neonSwayBest') || 0;
+        let gameActive = true;
+        let enemies = [];
+        let speedMult = 1;
+
+        // Display starting high score
+        bestEl.innerText = highScore;
+
+        const player = { x: canvas.width / 2, y: canvas.height / 2, radius: 10 };
+
+        window.addEventListener('mousemove', (e) => {
+            player.x = e.clientX;
+            player.y = e.clientY;
+        });
+
+        class Enemy {
+            constructor() {
+                this.radius = Math.random() * 15 + 10;
+                // Spawn from random edges
+                if (Math.random() < 0.5) {
+                    this.x = Math.random() < 0.5 ? -this.radius : canvas.width + this.radius;
+                    this.y = Math.random() * canvas.height;
+                } else {
+                    this.x = Math.random() * canvas.width;
+                    this.y = Math.random() < 0.5 ? -this.radius : canvas.height + this.radius;
+                }
+                const angle = Math.atan2(player.y - this.y, player.x - this.x);
+                this.velocity = {
+                    x: Math.cos(angle) * (2.5 * speedMult),
+                    y: Math.sin(angle) * (2.5 * speedMult)
+                };
+            }
+            draw() {
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = '#ff0055';
+                ctx.fillStyle = '#ff0055';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            update() {
+                this.x += this.velocity.x;
+                this.y += this.velocity.y;
+            }
+        }
+
+        function spawnEnemy() {
+            if (gameActive) {
+                enemies.push(new Enemy());
+                // Difficulty ramps up, but cap the spawn rate
+                let delay = Math.max(200, 1000 / speedMult);
+                setTimeout(spawnEnemy, delay);
+            }
+        }
+
+        function reset() {
+            score = 0;
+            enemies = [];
+            speedMult = 1;
+            gameActive = true;
+            msgEl.style.display = 'none';
+            recordEl.style.display = 'none';
+            scoreEl.innerText = '0';
+            spawnEnemy();
+            animate();
+        }
+
+        function animate() {
+            if (!gameActive) return;
+            requestAnimationFrame(animate);
+            
+            ctx.fillStyle = 'rgba(5, 5, 5, 0.15)'; 
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Draw Player
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = '#00ffcc';
+            ctx.fillStyle = '#fff';
+            ctx.beginPath();
+            ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            enemies.forEach((enemy, index) => {
+                enemy.update();
+                enemy.draw();
+
+                const dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+                if (dist < enemy.radius + player.radius) {
+                    endGame();
+                }
+
+                // Points for dodging
+                if (enemy.x < -100 || enemy.x > canvas.width + 100 || enemy.y < -100 || enemy.y > canvas.height + 100) {
+                    enemies.splice(index, 1);
+                    score += 10;
+                    scoreEl.innerText = score;
+                    speedMult += 0.03;
+                }
+            });
+        }
+
+        function endGame() {
+            gameActive = false;
+            msgEl.style.display = 'block';
+            finalEl.innerText = `Final Score: ${score}`;
+
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('neonSwayBest', highScore);
+                bestEl.innerText = highScore;
+                recordEl.style.display = 'block';
+            }
+        }
+
+        spawnEnemy();
+        animate();
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+    </script>
+</body>
+</html>
