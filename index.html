@@ -3,36 +3,67 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Neon Sway: Ultimate Edition</title>
+    <title>NEON SWAY: POWER-UP EDITION</title>
     <style>
-        body { margin: 0; background: #050505; color: white; overflow: hidden; font-family: 'Segoe UI', sans-serif; touch-action: none; }
-        canvas { display: block; }
-        #ui-layer { position: absolute; top: 20px; left: 20px; pointer-events: none; }
-        .stat { font-size: 20px; margin-bottom: 5px; text-shadow: 0 0 10px rgba(0,255,204,0.5); }
-        #msg { 
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-            text-align: center; display: none; background: rgba(0,0,0,0.9); 
-            padding: 40px; border-radius: 20px; border: 2px solid #00ffcc; width: 80%; max-width: 400px;
+        :root { --neon: #00ffcc; --pink: #ff0055; --blue: #0088ff; --gold: #ffcc00; --mega: #00ff44; }
+        body { margin: 0; background: #050505; color: white; overflow: hidden; font-family: 'Courier New', monospace; touch-action: none; }
+        canvas { display: block; position: fixed; top: 0; left: 0; z-index: -1; }
+        
+        .screen { 
+            position: absolute; width: 100%; height: 100%; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: rgba(5, 5, 5, 0.95); transition: 0.5s; z-index: 10;
         }
-        #new-record { color: #ff00ff; font-weight: bold; display: none; margin-bottom: 10px; animation: blink 0.5s infinite; }
-        button { 
-            background: #00ffcc; border: none; padding: 15px 40px; font-size: 20px; 
-            cursor: pointer; border-radius: 50px; font-weight: bold; margin-top: 20px;
+        .hidden { display: none !important; }
+
+        h1 { font-size: 3rem; color: var(--neon); text-shadow: 0 0 20px var(--neon); text-align: center; margin-bottom: 20px; font-style: italic; }
+        
+        .menu-btn {
+            background: transparent; border: 2px solid var(--neon); color: var(--neon);
+            padding: 15px 30px; font-size: 1rem; cursor: pointer; margin: 10px;
+            width: 280px; transition: 0.3s; text-transform: uppercase; letter-spacing: 2px; font-weight: bold;
         }
-        @keyframes blink { 50% { opacity: 0; } }
+        .menu-btn:hover { background: var(--neon); color: black; box-shadow: 0 0 40px var(--neon); }
+
+        .level-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        .lvl-btn { width: 80px; height: 80px; font-size: 1.5rem; }
+
+        #game-stats { position: absolute; top: 20px; left: 20px; pointer-events: none; z-index: 5; }
+        #power-status { font-size: 0.8rem; font-weight: bold; margin-top: 5px; text-transform: uppercase; }
     </style>
 </head>
 <body>
-    <div id="ui-layer">
-        <div class="stat">Score: <span id="score">0</span></div>
-        <div class="stat">Best: <span id="best">0</span></div>
+
+    <div id="main-menu" class="screen">
+        <h1>NEON_SWAY</h1>
+        <button class="menu-btn" onclick="showScreen('level-menu')">MISSIONS</button>
+        <button class="menu-btn" style="border-color: var(--gold); color: var(--gold);" onclick="startGame('free')">EXTREME ROAM</button>
+        <div style="margin-top:25px; text-align:center; font-size: 0.8rem; color: #666;">
+            BEST ROAM: <span id="best-roam" style="color:var(--gold)">0</span>
+        </div>
     </div>
 
-    <div id="msg">
-        <div id="new-record">🔥 NEW HIGH SCORE! 🔥</div>
-        <h1 style="margin-top:0">GAME OVER</h1>
-        <p id="final"></p>
-        <button onclick="reset()">TRY AGAIN</button>
+    <div id="level-menu" class="screen hidden">
+        <h1 style="color: var(--blue);">SECTOR_SELECT</h1>
+        <div class="level-grid">
+            <button class="menu-btn lvl-btn" onclick="startGame(1)">01</button>
+            <button class="menu-btn lvl-btn" onclick="startGame(2)">02</button>
+            <button class="menu-btn lvl-btn" onclick="startGame(3)">03</button>
+            <button class="menu-btn lvl-btn" onclick="startGame(4)">04</button>
+            <button class="menu-btn lvl-btn" onclick="startGame(5)">05</button>
+        </div>
+        <button class="menu-btn" style="border-color: var(--pink); color: var(--pink); margin-top: 20px;" onclick="showScreen('main-menu')">BACK</button>
+    </div>
+
+    <div id="win-screen" class="screen hidden">
+        <h1 style="color: var(--gold)">SYNC_COMPLETE</h1>
+        <button id="next-lvl-btn" class="menu-btn">NEXT SECTOR</button>
+        <button class="menu-btn" onclick="showScreen('main-menu')">EXIT</button>
+    </div>
+
+    <div id="game-stats" class="hidden">
+        <div style="color: var(--neon); font-size: 1.4rem; font-weight: bold;">SYNC: <span id="score">0</span></div>
+        <div id="power-status"></div>
     </div>
 
     <canvas id="gameCanvas"></canvas>
@@ -40,133 +71,171 @@
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
-        const scoreEl = document.getElementById('score');
-        const bestEl = document.getElementById('best');
-        const msgEl = document.getElementById('msg');
-        const finalEl = document.getElementById('final');
-        const recordEl = document.getElementById('new-record');
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const thresholds = { 1: 150, 2: 250, 3: 400, 4: 500, 5: 750 };
 
-        function resize() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+        let score = 0, gameActive = false, enemies = [], powerups = [], difficulty = 1, mode = 'levels';
+        let slowMo = false, megaMode = false;
+        let roamBest = localStorage.getItem('neonRoamBest') || 0;
+        document.getElementById('best-roam').innerText = roamBest;
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        const player = { x: canvas.width/2, y: canvas.height/2, radius: 10 };
+
+        function playSfx(freq, type, dur = 0.2, vol = 0.05) {
+            try {
+                const osc = audioCtx.createOscillator();
+                const g = audioCtx.createGain();
+                osc.type = type; osc.frequency.value = freq;
+                g.gain.setValueAtTime(vol, audioCtx.currentTime);
+                g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+                osc.connect(g); g.connect(audioCtx.destination);
+                osc.start(); osc.stop(audioCtx.currentTime + dur);
+            } catch(e) {}
         }
-        window.addEventListener('resize', resize);
-        resize();
 
-        let score = 0;
-        let highScore = localStorage.getItem('neonSwayBest') || 0;
-        let gameActive = true;
-        let enemies = [];
-        let speedMult = 1;
-        bestEl.innerText = highScore;
-
-        const player = { x: canvas.width / 2, y: canvas.height / 2, radius: 12 };
-
-        // Mouse Controls
-        window.addEventListener('mousemove', (e) => {
-            player.x = e.clientX;
-            player.y = e.clientY;
+        window.addEventListener('mousemove', e => { 
+            if(gameActive) { player.x = e.clientX; player.y = e.clientY; }
         });
 
-        // Touch Controls
-        window.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-            player.x = e.touches[0].clientX;
-            player.y = e.touches[0].clientY;
+        window.addEventListener('touchmove', e => { 
+            e.preventDefault(); if(gameActive) { player.x = e.touches[0].clientX; player.y = e.touches[0].clientY; }
         }, { passive: false });
+
+        class Powerup {
+            constructor(type) {
+                this.type = type; // 'slow' or 'mega'
+                this.x = 50 + Math.random() * (canvas.width - 100);
+                this.y = 50 + Math.random() * (canvas.height - 100);
+                this.radius = 12;
+                this.color = type === 'slow' ? '#0088ff' : '#00ff44';
+            }
+            draw() {
+                ctx.shadowBlur = 15; ctx.shadowColor = this.color; ctx.fillStyle = this.color;
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.fill();
+            }
+        }
 
         class Enemy {
             constructor() {
-                this.radius = Math.random() * 12 + 10;
-                let side = Math.floor(Math.random() * 4);
-                if (side === 0) { this.x = -this.radius; this.y = Math.random() * canvas.height; }
-                else if (side === 1) { this.x = canvas.width + this.radius; this.y = Math.random() * canvas.height; }
-                else if (side === 2) { this.y = -this.radius; this.x = Math.random() * canvas.width; }
-                else { this.y = canvas.height + this.radius; this.x = Math.random() * canvas.width; }
-
+                this.radius = 7 + Math.random()*8;
+                let side = Math.floor(Math.random()*4);
+                if(side==0){this.x=-30; this.y=Math.random()*canvas.height}
+                else if(side==1){this.x=canvas.width+30; this.y=Math.random()*canvas.height}
+                else if(side==2){this.y=-30; this.x=Math.random()*canvas.width}
+                else {this.y=canvas.height+30; this.x=Math.random()*canvas.width}
                 const angle = Math.atan2(player.y - this.y, player.x - this.x);
-                this.velocity = {
-                    x: Math.cos(angle) * (2.8 * speedMult),
-                    y: Math.sin(angle) * (2.8 * speedMult)
-                };
+                let spd = (2.5 + (difficulty * 0.75));
+                this.vx = Math.cos(angle)*spd; this.vy = Math.sin(angle)*spd;
+            }
+            update() { 
+                let speedMult = slowMo ? 0.3 : 1;
+                this.x += this.vx * speedMult; 
+                this.y += this.vy * speedMult; 
             }
             draw() {
-                ctx.shadowBlur = 15;
-                ctx.shadowColor = '#ff0055';
-                ctx.fillStyle = '#ff0055';
-                ctx.beginPath();
-                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-                ctx.fill();
+                ctx.shadowBlur = 10; ctx.shadowColor = '#ff0055'; ctx.fillStyle = '#ff0055';
+                ctx.beginPath(); ctx.arc(this.x, this.y, this.radius, 0, Math.PI*2); ctx.fill();
             }
-            update() {
-                this.x += this.velocity.x;
-                this.y += this.velocity.y;
-            }
+        }
+
+        function showScreen(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+            document.getElementById('game-stats').classList.add('hidden');
+            document.getElementById(id).classList.remove('hidden');
+        }
+
+        function startGame(val) {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            mode = (val === 'free') ? 'free' : 'levels';
+            difficulty = (val === 'free') ? 2.0 : val;
+            score = 0; enemies = []; powerups = []; gameActive = true;
+            slowMo = false; megaMode = false;
+            document.getElementById('score').innerText = '0';
+            document.getElementById('power-status').innerText = "";
+            showScreen('game-stats'); 
+            spawnEnemy(); spawnPowerup(); animate();
         }
 
         function spawnEnemy() {
-            if (gameActive) {
-                enemies.push(new Enemy());
-                setTimeout(spawnEnemy, Math.max(150, 900 / speedMult));
-            }
+            if(!gameActive) return;
+            enemies.push(new Enemy());
+            setTimeout(spawnEnemy, Math.max(70, 800 / (1 + (difficulty * 0.5))));
         }
 
-        function reset() {
-            score = 0;
-            enemies = [];
-            speedMult = 1;
-            gameActive = true;
-            msgEl.style.display = 'none';
-            recordEl.style.display = 'none';
-            scoreEl.innerText = '0';
-            spawnEnemy();
-            animate();
+        function spawnPowerup() {
+            if(!gameActive) return;
+            powerups.push(new Powerup(Math.random() > 0.5 ? 'slow' : 'mega'));
+            setTimeout(spawnPowerup, 7000 + Math.random() * 5000);
         }
 
         function animate() {
-            if (!gameActive) return;
+            if(!gameActive) return;
             requestAnimationFrame(animate);
-            
-            ctx.fillStyle = 'rgba(5, 5, 5, 0.2)'; 
+
+            ctx.fillStyle = 'rgba(5, 5, 5, 0.25)'; 
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Draw Player
+            // Player Logic
+            let pRadius = megaMode ? 30 : 10;
             ctx.shadowBlur = 20;
-            ctx.shadowColor = '#00ffcc';
-            ctx.fillStyle = '#fff';
-            ctx.beginPath();
-            ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.shadowBlur = 0;
+            ctx.shadowColor = megaMode ? '#00ff44' : '#00ffcc';
+            ctx.fillStyle = megaMode ? '#00ff44' : '#fff';
+            ctx.beginPath(); ctx.arc(player.x, player.y, pRadius, 0, Math.PI*2); ctx.fill();
 
-            enemies.forEach((enemy, index) => {
-                enemy.update();
-                enemy.draw();
+            // Powerup Logic
+            powerups.forEach((p, i) => {
+                p.draw();
+                if(Math.hypot(player.x - p.x, player.y - p.y) < p.radius + pRadius) {
+                    playSfx(800, 'triangle', 0.3);
+                    if(p.type === 'slow') {
+                        slowMo = true;
+                        document.getElementById('power-status').innerText = "SLOW-MO ACTIVE";
+                        document.getElementById('power-status').style.color = "var(--blue)";
+                        setTimeout(() => { slowMo = false; document.getElementById('power-status').innerText = ""; }, 5000);
+                    } else {
+                        megaMode = true;
+                        document.getElementById('power-status').innerText = "MEGA-SIZE ACTIVE";
+                        document.getElementById('power-status').style.color = "var(--mega)";
+                        setTimeout(() => { megaMode = false; document.getElementById('power-status').innerText = ""; }, 5000);
+                    }
+                    powerups.splice(i, 1);
+                }
+            });
 
-                const dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
-                if (dist < enemy.radius + player.radius) {
-                    gameActive = false;
-                    msgEl.style.display = 'block';
-                    finalEl.innerText = `Final Score: ${score}`;
-                    if (score > highScore) {
-                        highScore = score;
-                        localStorage.setItem('neonSwayBest', highScore);
-                        bestEl.innerText = highScore;
-                        recordEl.style.display = 'block';
+            enemies.forEach((e, i) => {
+                e.update(); e.draw();
+                
+                let dist = Math.hypot(player.x - e.x, player.y - e.y);
+                if(dist < e.radius + pRadius) {
+                    if(megaMode) {
+                        enemies.splice(i, 1);
+                        score += 20;
+                        playSfx(200, 'sine', 0.1);
+                    } else {
+                        gameActive = false;
+                        playSfx(80, 'sawtooth', 0.6, 0.15);
+                        alert("GAME OVER: " + score);
+                        showScreen('main-menu');
                     }
                 }
 
-                if (enemy.x < -100 || enemy.x > canvas.width + 100 || enemy.y < -100 || enemy.y > canvas.height + 100) {
-                    enemies.splice(index, 1);
-                    score += 10;
-                    scoreEl.innerText = score;
-                    speedMult += 0.04;
+                if(e.x < -200 || e.x > canvas.width+200 || e.y < -200 || e.y > canvas.height+200) {
+                    enemies.splice(i, 1); score += 10; 
+                    document.getElementById('score').innerText = score;
+                    if(mode === 'free') difficulty += 0.09; 
+                    if(mode === 'levels' && score >= thresholds[difficulty]) {
+                        gameActive = false;
+                        showScreen('win-screen');
+                        let next = parseInt(difficulty) + 1;
+                        let btn = document.getElementById('next-lvl-btn');
+                        if(thresholds[next]) { btn.style.display="block"; btn.onclick = () => startGame(next); }
+                        else btn.style.display="none";
+                    }
                 }
             });
         }
-
-        spawnEnemy();
-        animate();
     </script>
 </body>
 </html>
